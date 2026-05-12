@@ -27,6 +27,8 @@ GROUP BY date_created;
  
 Время без индексов - Time: 37252.847 ms (00:37.253)
 Время с индексами - Time: 82805.893 ms (01:22.806)
+Индексы не ускорили запрос, потому что условие date_created > now() - interval '7 days' отбирает около 7% строк таблицы, и для виртуальной машины последовательное сканирование оказалось эффективнее случайных чтений битовой карты. Для оптимизации такого запроса следовало бы использовать покрывающий индекс или материализованное представление.
+
 
 ------------------------ ЗАПРОС БЕЗ ИНДЕКСОВ
 
@@ -101,7 +103,65 @@ Time: 36616.337 ms (00:36.616)
 
 
 ------------------------ ТУТ НИЖЕ ОПТИМИЗИРОВАННЫЙ ЗАПРОС (индексами)
+store=# \timing
+Timing is on.
+store=# EXPLAIN (ANALYZE, BUFFERS)
+SELECT
+SUM(quantity) AS quantity_sold,
+date_created AS date_of_sale
+FROM orders AS o
+LEFT JOIN order_product AS op
+    ON op.order_id = o.id
+WHERE o.status = 'shipped' AND o.date_created > NOW() - INTERVAL '7 DAY'
+GROUP BY date_created;
+                                                                                     QUERY PLAN
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate  (cost=194668.28..194691.34 rows=91 width=12) (actual time=74010.120..74031.242 rows=7 loops=1)
+   Group Key: o.date_created
+   Buffers: shared hit=37 read=126634
+   ->  Gather Merge  (cost=194668.28..194689.52 rows=182 width=12) (actual time=74010.075..74031.163 rows=21 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=37 read=126634
+         ->  Sort  (cost=193668.26..193668.49 rows=91 width=12) (actual time=73838.713..73838.723 rows=7 loops=3)
+               Sort Key: o.date_created
+               Sort Method: quicksort  Memory: 25kB
+               Buffers: shared hit=37 read=126634
+               Worker 0:  Sort Method: quicksort  Memory: 25kB
+               Worker 1:  Sort Method: quicksort  Memory: 25kB
+               ->  Partial HashAggregate  (cost=193664.39..193665.30 rows=91 width=12) (actual time=73838.673..73838.683 rows=7 loops=3)
+                     Group Key: o.date_created
+                     Batches: 1  Memory Usage: 24kB
+                     Buffers: shared hit=21 read=126634
+                     Worker 0:  Batches: 1  Memory Usage: 24kB
+                     Worker 1:  Batches: 1  Memory Usage: 24kB
+                     ->  Parallel Hash Right Join  (cost=76860.00..193159.17 rows=101044 width=8) (actual time=62210.012..73807.160 rows=80088 loops=3)
+                           Hash Cond: (op.order_id = o.id)
+                           Buffers: shared hit=21 read=126634
+                           ->  Parallel Seq Scan on order_product op  (cost=0.00..105361.67 rows=4166667 width=12) (actual time=11.854..9607.768 rows=3333333 loops=3)
+                                 Buffers: shared read=63695
+                           ->  Parallel Hash  (cost=75596.95..75596.95 rows=101044 width=12) (actual time=62193.165..62193.170 rows=80088 loops=3)
+                                 Buckets: 262144  Batches: 1  Memory Usage: 13376kB
+                                 Buffers: shared read=62936
+                                 ->  Parallel Bitmap Heap Scan on orders o  (cost=9881.07..75596.95 rows=101044 width=12) (actual time=73.655..62130.787 rows=80088 loops=3)
+                                       Recheck Cond: ((date_created > (now() - '7 days'::interval)) AND ((status)::text = 'shipped'::text))
+                                       Heap Blocks: exact=21115
+                                       Buffers: shared read=62936
+                                       ->  Bitmap Index Scan on orders_date_status_idx  (cost=0.00..9820.44 rows=242506 width=0) (actual time=132.179..132.179 rows=240265 loops=1)
+                                             Index Cond: ((date_created > (now() - '7 days'::interval)) AND ((status)::text = 'shipped'::text))
+                                             Buffers: shared read=622
+ Planning:
+   Buffers: shared hit=2 read=14
+ Planning Time: 112.335 ms
+ JIT:
+   Functions: 57
+   Options: Inlining false, Optimization false, Expressions true, Deforming true
+   Timing: Generation 24.148 ms, Inlining 0.000 ms, Optimization 1.433 ms, Emission 79.372 ms, Total 104.953 ms
+ Execution Time: 74032.223 ms
+(42 rows)
 
+Time: 74172.194 ms (01:14.172)
+store=#
 
 
 
