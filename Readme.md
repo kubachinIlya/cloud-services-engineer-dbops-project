@@ -8,3 +8,6 @@
 GRANT CONNECT ON DATABASE store TO store_user;
 GRANT USAGE, CREATE ON SCHEMA public TO store_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO store_user;
+
+
+Вот такое все дали права права привилегия да
