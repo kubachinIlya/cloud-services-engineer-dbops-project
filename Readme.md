@@ -11,3 +11,4 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO store_user;
 
 
 Вот такое все дали права права привилегия да
+запуускаем
